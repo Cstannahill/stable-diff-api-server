@@ -1,0 +1,70 @@
+# Development docker-compose with hot reload and debugging
+version: '3.8'
+
+services:
+  flux-api-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.optimized
+      target: builder  # Use builder stage for development
+    container_name: flux-api-dev
+    ports:
+      - "8000:8000"
+      - "5678:5678"  # Debug port
+    
+    # GPU configuration
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Development environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=0
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - TORCH_CUDNN_V8_API_ENABLED=1
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+      - LOG_LEVEL=debug
+      - RELOAD=true  # Enable auto-reload for development
+    
+    # Volume mounts for development
+    volumes:
+      # Mount source code for hot reload
+      - ./app:/app/app:rw
+      # Persistent model cache
+      - ./app/model_cache:/app/app/model_cache:rw
+      # Development logs
+      - ./logs:/app/logs:rw
+      # Shared memory
+      - /dev/shm:/dev/shm:rw
+    
+    # Override command for development with reload
+    command: >
+      uvicorn app.app:app 
+      --host 0.0.0.0 
+      --port 8000 
+      --reload 
+      --reload-dir /app/app
+      --log-level debug
+      --access-log
+    
+    # Network configuration
+    networks:
+      - flux-dev-network
+    
+    # GPU runtime
+    runtime: nvidia
+    
+    # Allow debugging
+    stdin_open: true
+    tty: true
+
+networks:
+  flux-dev-network:
+    driver: bridge

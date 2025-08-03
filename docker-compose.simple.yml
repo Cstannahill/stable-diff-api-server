@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  flux-api:
+    image: flux-api:simple-fixed
+    container_name: flux-api-simple
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    
+    # GPU configuration for RTX 4070 Super
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+        reservations:
+          memory: 8G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    
+    # Environment variables for optimal performance
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - CUDA_VISIBLE_DEVICES=0
+      - NVIDIA_VISIBLE_DEVICES=0
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      
+      # PyTorch optimizations
+      - TORCH_CUDNN_V8_API_ENABLED=1
+      - CUDA_LAUNCH_BLOCKING=0
+      - CUDA_CACHE_DISABLE=0
+      - CUBLAS_WORKSPACE_CONFIG=:4096:8
+      
+      # Memory optimization
+      - PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512,garbage_collection_threshold:0.6
+      
+      # App-specific settings
+      - MODEL_CACHE_DIR=/app/app/model_cache
+      - LOG_LEVEL=info
+    
+    # Volume mounts for persistence
+    volumes:
+      # Persistent model cache
+      - ./app/model_cache:/app/app/model_cache:rw
+      # Shared memory for better performance
+      - /dev/shm:/dev/shm:rw
+    
+    # Security options
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Resource limits
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      stack:
+        soft: 67108864
+        hard: 67108864
+    
+    # GPU runtime
+    runtime: nvidia
+
+volumes:
+  model_cache:
+    driver: local

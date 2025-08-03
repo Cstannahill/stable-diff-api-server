@@ -1,0 +1,12 @@
+services:
+  flux-api:
+    build: .
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    environment:
+      - PYTHONUNBUFFERED=1
