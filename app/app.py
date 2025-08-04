@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 class ImageRequest(BaseModel):
     prompt: str
-    guidance_scale: float = 3.5
-    num_inference_steps: int = 28
+    guidance_scale: float = 7.5  # SDXL works better with higher guidance
+    num_inference_steps: int = 20  # SDXL is efficient with fewer steps
     width: int = 1024
     height: int = 1024
     seed: Optional[int] = None
@@ -39,35 +39,40 @@ queue_lock = Lock()
 
 # Define local cache directory
 CACHE_DIR = os.path.join(os.path.dirname(__file__), "model_cache")
-MODEL_NAME = "black-forest-labs/FLUX.1-Krea-dev"
+MODEL_NAME = "stabilityai/stable-diffusion-xl-base-1.0"
 
 # Ensure cache directory exists
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Load model with local caching and optimizations
-logger.info(f"Loading model {MODEL_NAME} from cache directory: {CACHE_DIR}")
+logger.info(f"Loading SDXL model {MODEL_NAME} from cache directory: {CACHE_DIR}")
 pipe = DiffusionPipeline.from_pretrained(
     MODEL_NAME,
     cache_dir=CACHE_DIR,
-    torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+    use_safetensors=True,
+    variant="fp16" if torch.cuda.is_available() else None,
 ).to("cuda" if torch.cuda.is_available() else "cpu")
 
-# Optimize model with torch.compile and memory format
+# Enable memory efficient attention for SDXL
 if torch.cuda.is_available():
-    logger.info("Applying torch.compile optimizations...")
-    # Set memory format for better GPU utilization
-    pipe.transformer.to(memory_format=torch.channels_last)
-    # Apply torch.compile for significant speedup
-    pipe.transformer = torch.compile(
-        pipe.transformer, mode="max-autotune", fullgraph=True
-    )
-    # Warmup inference to eliminate first-request latency
-    logger.info("Performing warmup inference...")
+    logger.info("Enabling memory efficient attention...")
+    try:
+        pipe.enable_xformers_memory_efficient_attention()
+        logger.info("Memory efficient attention enabled")
+    except Exception as e:
+        logger.warning(f"Could not enable xformers attention: {e}")
+
+# Warmup inference for SDXL
+logger.info("Performing SDXL warmup inference...")
+try:
     with torch.no_grad():
-        _ = pipe(  # type: ignore[reportCallIssue]
-            "warmup", guidance_scale=3.5, num_inference_steps=1, width=512, height=512
+        _ = pipe(
+            "test", guidance_scale=7.5, num_inference_steps=1, width=512, height=512
         )
-    logger.info("Warmup completed")
+    logger.info("SDXL warmup completed successfully")
+except Exception as e:
+    logger.warning(f"SDXL warmup failed, continuing without it: {e}")
 
 logger.info("Model loaded and optimized successfully")
 
@@ -183,8 +188,8 @@ async def startup_event():
 
 def run_pipe(
     prompt: str,
-    guidance_scale: float = 3.5,
-    num_inference_steps: int = 28,
+    guidance_scale: float = 7.5,  # SDXL optimal
+    num_inference_steps: int = 20,  # SDXL optimal
     width: int = 1024,
     height: int = 1024,
     seed: Optional[int] = None,
@@ -197,6 +202,10 @@ def run_pipe(
     start_time = time.time()
 
     try:
+        # Clear GPU cache before generation
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
         # Set seed for reproducibility if provided
         generator = None
         if seed is not None:
@@ -219,7 +228,13 @@ def run_pipe(
         logger.info(f"Image generation completed in {generation_time:.2f} seconds")
         return result, generation_time
     except Exception as e:
-        logger.error(f"Error during image generation: {str(e)}")
+        generation_time = time.time() - start_time
+        logger.error(
+            f"Error during image generation after {generation_time:.2f}s: {type(e).__name__}: {str(e)}"
+        )
+        import traceback
+
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         raise
 
 
@@ -388,7 +403,13 @@ async def generate(req: ImageRequest):
         return StreamingResponse(buf, media_type="image/png")
 
     except Exception as e:
-        logger.error(f"Error in synchronous generate endpoint: {str(e)}")
+        logger.error(
+            f"Error in synchronous generate endpoint: {type(e).__name__}: {str(e)}"
+        )
+        import traceback
+
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         raise HTTPException(
-            status_code=500, detail=f"Image generation failed: {str(e)}"
+            status_code=500,
+            detail=f"Image generation failed: {type(e).__name__}: {str(e)}",
         )

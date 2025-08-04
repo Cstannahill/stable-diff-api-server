@@ -103,7 +103,7 @@ The server uses the `black-forest-labs/FLUX.1-Krea-dev` model by default. On fir
 ### Base URL
 
 ```
-http://localhost:8000
+http://localhost:8001
 ```
 
 ### Endpoints
@@ -216,6 +216,44 @@ GET /queue/status
 }
 ```
 
+## 🧪 Quick Testing
+
+Since your server is running on port 8001, here are the updated test commands:
+
+### 1. Health Check (Test if server is responsive)
+
+```bash
+curl http://localhost:8001/ping
+```
+
+### 2. Check Queue Status
+
+```bash
+curl http://localhost:8001/queue/status
+```
+
+### 3. Fast Test Generation (Recommended for testing)
+
+```bash
+curl -X POST http://localhost:8001/generate/queue \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "a simple cat", "num_inference_steps": 10, "width": 512, "height": 512}' | jq .
+```
+
+### 4. Monitor Generation Progress
+
+After submitting to queue, use the `request_id` from the response:
+
+```bash
+# Check status (replace REQUEST_ID with actual ID)
+curl http://localhost:8001/queue/status/REQUEST_ID | jq .
+
+# Download result when completed
+curl http://localhost:8001/result/REQUEST_ID --output result.png
+```
+
+> **⚠️ Note**: If synchronous generation (`/generate`) hangs, use the async queue system (`/generate/queue`) instead for better monitoring and timeout handling.
+
 ## 🚀 Usage Examples
 
 ### Python Client Example
@@ -227,7 +265,7 @@ from PIL import Image
 
 # Synchronous generation
 response = requests.post(
-    "http://localhost:8000/generate",
+    "http://localhost:8001/generate",
     json={
         "prompt": "a majestic lion in a golden savanna at sunset",
         "guidance_scale": 3.5,
@@ -251,14 +289,14 @@ import time
 
 # Submit request to queue
 response = requests.post(
-    "http://localhost:8000/generate/queue",
+    "http://localhost:8001/generate/queue",
     json={"prompt": "a cyberpunk cityscape at night"}
 )
 
 request_data = response.json()
 request_id = request_data["request_id"]
-status_url = f"http://localhost:8000/queue/status/{request_id}"
-result_url = f"http://localhost:8000/result/{request_id}"
+status_url = f"http://localhost:8001/queue/status/{request_id}"
+result_url = f"http://localhost:8001/result/{request_id}"
 
 # Poll for completion
 while True:
@@ -284,21 +322,21 @@ while True:
 
 ```bash
 # Synchronous generation
-curl -X POST http://localhost:8000/generate \
+curl -X POST http://localhost:8001/generate \
   -H "Content-Type: application/json" \
   -d '{"prompt": "a beautiful sunset over mountains"}' \
   --output sunset.png
 
 # Queue a request
-curl -X POST http://localhost:8000/generate/queue \
+curl -X POST http://localhost:8001/generate/queue \
   -H "Content-Type: application/json" \
   -d '{"prompt": "a futuristic robot"}' | jq .
 
 # Check status
-curl http://localhost:8000/queue/status/REQUEST_ID | jq .
+curl http://localhost:8001/queue/status/REQUEST_ID | jq .
 
 # Download result
-curl http://localhost:8000/result/REQUEST_ID --output result.png
+curl http://localhost:8001/result/REQUEST_ID --output result.png
 ```
 
 ## ⚡ Performance Optimization
